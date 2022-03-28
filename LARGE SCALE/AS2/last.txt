@@ -1,0 +1,37 @@
+# read in two different dataframe, which are cointains "authentic" and "legitimate"
+rdf = spark.read.json("/datasets/yelp/review.json")
+rdf.createOrReplaceTempView("reviews")
+
+bdf = spark.read.json("/datasets/yelp/business.json")
+bdf.createOrReplaceTempView("business")
+
+bdf = spark.sql("SELECT * FROM business")
+
+# rdf_a = spark.sql("SELECT * FROM reviews WHERE text LIKE '%authentic%' OR text LIKE '%accent%'")
+rdf_a = spark.sql("SELECT * FROM reviews WHERE text LIKE '%authentic%' OR text LIKE '%accent%' AND (text LIKE '%dirty%' \
+                    OR text LIKE '%cheap%' OR text LIKE '%kitsch%' \
+                    OR text LIKE '%rude%' OR text LIKE '%simple%')") # 102374
+rdf_a = spark.sql("SELECT * FROM reviews WHERE text LIKE '%authentic%' AND (text LIKE '%dirty%' \
+                    OR text LIKE '%cheap%' OR text LIKE '%kitsch%' \
+                    OR text LIKE '%rude%' OR text LIKE '%simple%')") # 9321 after searchin filter only restaurants
+
+rdf_l = spark.sql("SELECT * FROM reviews WHERE text LIKE '%legitimate%' AND (text LIKE '%dirty%' \
+                    OR text LIKE '%cheap%' OR text LIKE '%kitsch%' \
+                    OR text LIKE '%rude%' OR text LIKE '%simple%')")
+
+rdf_a.toPandas().to_csv("rdf_a.csv", header=True, index=False, encoding='utf-8')
+rdf_l.toPandas().to_csv("rdf_l.csv", header=True, index=False, encoding='utf-8')
+bdf.toPandas().to_csv("bdf.csv", header=True, index=False, encoding='utf-8')
+
+rdf_a = pd.read_csv('rdf_a.csv') # 116677
+rdf_l = pd.read_csv('rdf_l.csv')
+bdf = pd.read_csv('bdf.csv') # 192609
+
+merge_a = pd.merge(bdf, rdf_a, on="business_id", how="inner") # 11677
+merge_l = pd.merge(bdf, rdf_l, on="business_id", how="inner")
+# filter for only restaurants
+
+merge_a = merge_a[merge_a["categories"].str.contains("restaurant", case=False)==True] #
+# merge_l = merge_l[merge_l["categories"].str.contains("Restaurants|Restaurant", case=False)==True]
+merge_l = merge_l[merge_l["categories"].str.contains("restaurant", case=False)==True]
+# df[(df['col_name'].str.contains('apple')) & (df['col_name'].str.contains('banana'))]
