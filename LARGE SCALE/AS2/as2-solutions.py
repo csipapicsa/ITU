@@ -109,8 +109,8 @@ m.sort(col("count").desc()).show(truncate=False)
 
 ## 
 
-rdf_a = spark.sql("SELECT * FROM reviews WHERE text LIKE '%authentic%' OR text LIKE '%legitimate%' OR text LIKE '%accent%'")
-
+#rdf_a = spark.sql("SELECT * FROM reviews WHERE text LIKE '%authentic%' OR text LIKE '%legitimate%' OR text LIKE '%accent%'")
+rdf_a = spark.sql("SELECT * FROM reviews WHERE text LIKE '%authentic%' OR text LIKE '%accent%'")
 bdf = spark.sql("SELECT * FROM business WHERE state IS NOT NULL OR city IS NOT NULL")
 
 merge_auth = rdf_a.join(bdf,['business_id'],how='inner')
@@ -140,7 +140,120 @@ print("3.2.3")
 print("Result of ratio of using authenticity language compared to all review in state level")
 join.sort(join.Ratio.desc()).show(truncate=False)
 
+##
+print("3.2.2 Hypothesis Testing")
+# read in two different dataframe, which are cointains "authentic" and "legitimate"
+rdf = spark.read.json("/datasets/yelp/review.json")
+rdf.createOrReplaceTempView("reviews")
 
+bdf = spark.read.json("/datasets/yelp/business.json")
+bdf.createOrReplaceTempView("business")
+
+############ BADS 
+rdf = spark.sql("SELECT * FROM reviews WHERE text LIKE '%authentic%' OR text LIKE '%legitimate%' \
+                    AND (text LIKE '%dirty%' \
+                    OR text LIKE '%cheap%' OR text LIKE '%kitsch%' \
+                    OR text LIKE '%rude%' OR text LIKE '%simple%' OR text LIKE '%bad%')")
+
+bdf = spark.sql("SELECT * FROM business")
+
+rdf.toPandas().to_csv("rdf_hip.csv", header=True, index=False, encoding='utf-8')
+bdf.toPandas().to_csv("bdf.csv", header=True, index=False, encoding='utf-8')
+import pandas as pd
+rdf = pd.read_csv('rdf_hip.csv')
+bdf = pd.read_csv('bdf.csv')
+
+merge_a = pd.merge(bdf, rdf, on="business_id", how="inner")
+merge_a = merge_a[merge_a["categories"].str.contains("restaurant", case=False)==True]
+
+
+
+merge_a = merge_a.astype({"categories": str})
+
+merge_a['cats'] = merge_a.categories.apply(lambda x: x.split(', '))
+
+s = merge_a.apply(lambda x: pd.Series(x['cats']), axis=1).stack().reset_index(level=1, drop=True)
+#s = merge_a.apply(lambda x: pd.Series(x['cats']), axis=1).stack(level=list).reset_index(level=1, drop=True)
+
+s.name = 'cat'
+df2 = merge_a.drop('cats', axis=1).join(s)
+df2['cat'] = pd.Series(df2['cat'], dtype=object)
+# delete restaurants 
+df2 = df2[df2.cat != "Restaurants"]
+df2.to_csv("bads.csv", header=True, index=False, encoding='utf-8')
+
+
+
+list_of_categories =  df2['cat'].tolist()
+from collections import Counter
+
+bads = Counter(list_of_categories)
+e = 40
+print("first ",e," most common categories in order for negative words")
+print(bads.most_common(e))
+
+
+###### GOODS 
+
+rdf = spark.sql("SELECT * FROM reviews WHERE text LIKE '%authentic%' OR text LIKE '%legitimate%' \
+                    AND (text NOT LIKE '%dirty%' \
+                    OR text NOT LIKE '%cheap%' OR text NOT LIKE '%kitsch%' \
+                    OR text NOT LIKE '%rude%' OR text NOT LIKE '%simple%' OR text NOT LIKE '%bad%')")
+
+rdf.toPandas().to_csv("rdf_hip.csv", header=True, index=False, encoding='utf-8')
+
+import pandas as pd
+rdf = pd.read_csv('rdf_hip.csv')
+bdf = pd.read_csv('bdf.csv')
+
+merge_a = pd.merge(bdf, rdf, on="business_id", how="inner")
+
+merge_a = merge_a.astype({"categories": str})
+merge_a = merge_a[merge_a["categories"].str.contains("restaurant", case=False)==True]
+
+merge_a['cats'] = merge_a.categories.apply(lambda x: x.split(', '))
+
+s = merge_a.apply(lambda x: pd.Series(x['cats']), axis=1).stack().reset_index(level=1, drop=True)
+#s = merge_a.apply(lambda x: pd.Series(x['cats']), axis=1).stack(level=list).reset_index(level=1, drop=True)
+
+s.name = 'cat'
+df2 = merge_a.drop('cats', axis=1).join(s)
+df2['cat'] = pd.Series(df2['cat'], dtype=object)
+df2 = df2[df2.cat != "Restaurants"]
+df2.to_csv("not_bads.csv", header=True, index=False, encoding='utf-8')
+
+
+
+list_of_categories =  df2['cat'].tolist()
+from collections import Counter
+
+goods = Counter(list_of_categories)
+e = 40
+print("first ",e," most common categories in order without negative words")
+print(goods.most_common(e))
+
+print("Generate lists manually by cuisine type, grouped by the origin of the continents")
+s_am_list = ["Mexican","New Mexican Cuisine","Peruvian","Cuban"]
+s_asian_list = ["Thai", "Indian","Pakistani"]
+f_l = ["Mexican","New Mexican Cuisine","Peruvian","Cuban","Thai", "Indian","Pakistani"]
+eu = ["Italian","French","Greek","German","Spanish","Irish"]
+
+g = 0
+b = 0
+for i in f_l:
+    g += goods[i]
+    b += bads[i]
+
+print("Ratio of negative reviews compared to non negative reviews \n where the origin of the cusine is South America or South Asia: ", b/g)
+
+g = 0
+b = 0
+for i in eu:
+    g += goods[i]
+    b += bads[i]
+    
+
+print("Ratio of negative reviews compared to non negative reviews \n where the origin of the cusine is Europe: ", b/g)
 
 
 
