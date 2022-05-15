@@ -19,6 +19,8 @@ def query(days):
     wind_query = " SELECT * FROM MetForecasts where time > now() -"+str(days)+"d and time <=now() and Lead_hours = '1' "    
     wind = ii.client.query(wind_query)
     gen_df = get_data(generation)
+    # get rid of negative values 
+    gen_df = gen_df[gen_df["Total"] > 0]
     wind_df = get_data(wind)
     return gen_df, wind_df
     
